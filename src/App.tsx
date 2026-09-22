@@ -9,6 +9,7 @@ import {
   ArrowDown,
   ArrowUp,
   Bell,
+  Copy,
   Database,
   Download,
   Eye,
@@ -117,6 +118,16 @@ import {
   type GrokAccountSummary,
   type GrokOAuthStartResponse,
 } from './data/grok';
+import {
+  cancelKimiAddKey,
+  completeKimiAddKey,
+  deleteKimiAccount,
+  listKimiAccounts,
+  refreshAllKimiAccounts,
+  refreshKimiAccount,
+  startKimiAddKey,
+  type KimiAccountSummary,
+} from './data/kimi';
 import { integrations } from './data/integrations';
 import { listenForTrayRefresh, updateTrayMenu } from './data/tray';
 import { buildTrayUsageRows, type TrayProviderKey } from './data/trayRows';
@@ -131,7 +142,8 @@ type AppView =
   | 'claude-accounts'
   | 'kiro-accounts'
   | 'cursor-accounts'
-  | 'grok-accounts';
+  | 'grok-accounts'
+  | 'kimi-accounts';
 
 export type ViewMode = 'default' | 'compact' | 'list';
 type ThemeMode = 'system' | 'dark' | 'light';
@@ -144,6 +156,7 @@ const CLAUDE_ICON = '/brand-icons/claude.svg';
 const KIRO_ICON = '/brand-icons/kiro.svg';
 const CURSOR_ICON = '/brand-icons/cursor.svg';
 const GROK_ICON = '/brand-icons/grok.svg';
+const KIMI_ICON = '/brand-icons/kimi.svg';
 const DASHBOARD_VIEW_MODE_KEY = 'quota.dashboardViewMode';
 const ACCOUNT_PAGES_VIEW_MODE_KEY = 'quota.accountPagesViewMode';
 const THEME_MODE_KEY = 'quota.themeMode';
@@ -162,7 +175,7 @@ const MIN_NOTIFICATION_THRESHOLD = 1;
 const MAX_NOTIFICATION_THRESHOLD = 99;
 const VIEW_MODES: ViewMode[] = ['default', 'compact', 'list'];
 const THEME_MODES: ThemeMode[] = ['system', 'dark', 'light'];
-const DEFAULT_PROVIDER_ORDER: ProviderKey[] = ['githubCopilot', 'codex', 'antigravity', 'claude', 'kiro', 'cursor', 'grok'];
+const DEFAULT_PROVIDER_ORDER: ProviderKey[] = ['githubCopilot', 'codex', 'antigravity', 'claude', 'kiro', 'cursor', 'grok', 'kimi'];
 const PROVIDERS: Array<{ key: ProviderKey; name: string; iconPath: string }> = [
   { key: 'githubCopilot', name: 'GitHub Copilot', iconPath: GITHUB_COPILOT_ICON },
   { key: 'codex', name: 'Codex', iconPath: CODEX_ICON },
@@ -171,6 +184,7 @@ const PROVIDERS: Array<{ key: ProviderKey; name: string; iconPath: string }> = [
   { key: 'kiro', name: 'Kiro', iconPath: KIRO_ICON },
   { key: 'cursor', name: 'Cursor', iconPath: CURSOR_ICON },
   { key: 'grok', name: 'Grok', iconPath: GROK_ICON },
+  { key: 'kimi', name: 'Kimi', iconPath: KIMI_ICON },
 ];
 
 function readStoredViewMode(key: string): ViewMode {
@@ -495,6 +509,7 @@ export function App() {
   const [kiroAccounts, setKiroAccounts] = useState<KiroAccountSummary[]>([]);
   const [cursorAccounts, setCursorAccounts] = useState<CursorAccountSummary[]>([]);
   const [grokAccounts, setGrokAccounts] = useState<GrokAccountSummary[]>([]);
+  const [kimiAccounts, setKimiAccounts] = useState<KimiAccountSummary[]>([]);
   const [copilotLogin, setCopilotLogin] = useState<GitHubCopilotOAuthStartResponse | null>(null);
   const [codexLogin, setCodexLogin] = useState<CodexOAuthStartResponse | null>(null);
   const [antigravityLogin, setAntigravityLogin] = useState<AntigravityOAuthStartResponse | null>(null);
@@ -502,6 +517,10 @@ export function App() {
   const [kiroLogin, setKiroLogin] = useState<KiroOAuthStartResponse | null>(null);
   const [cursorLogin, setCursorLogin] = useState<CursorOAuthStartResponse | null>(null);
   const [grokLogin, setGrokLogin] = useState<GrokOAuthStartResponse | null>(null);
+  const [kimiPendingLoginId, setKimiPendingLoginId] = useState<string | null>(null);
+  const [kimiFormRequested, setKimiFormRequested] = useState(false);
+  const [kimiKeyInput, setKimiKeyInput] = useState('');
+  const [kimiLabelInput, setKimiLabelInput] = useState('');
   const [claudeCallbackInput, setClaudeCallbackInput] = useState('');
   const [claudeEmailHint, setClaudeEmailHint] = useState('');
   const [copilotBusy, setCopilotBusy] = useState(false);
@@ -511,6 +530,7 @@ export function App() {
   const [kiroBusy, setKiroBusy] = useState(false);
   const [cursorBusy, setCursorBusy] = useState(false);
   const [grokBusy, setGrokBusy] = useState(false);
+  const [kimiBusy, setKimiBusy] = useState(false);
   const [copilotError, setCopilotError] = useState<string | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
   const [antigravityError, setAntigravityError] = useState<string | null>(null);
@@ -518,6 +538,7 @@ export function App() {
   const [kiroError, setKiroError] = useState<string | null>(null);
   const [cursorError, setCursorError] = useState<string | null>(null);
   const [grokError, setGrokError] = useState<string | null>(null);
+  const [kimiError, setKimiError] = useState<string | null>(null);
   const [trayRefreshing, setTrayRefreshing] = useState(false);
   const autoRefreshRunningRef = useRef(false);
   const autoRefreshTickRef = useRef<() => Promise<void>>(async () => {});
@@ -527,7 +548,7 @@ export function App() {
   const notificationCheckActiveRef = useRef(false);
 
   const connectedCount =
-    copilotAccounts.length + codexAccounts.length + antigravityAccounts.length + claudeAccounts.length + kiroAccounts.length + cursorAccounts.length + grokAccounts.length;
+    copilotAccounts.length + codexAccounts.length + antigravityAccounts.length + claudeAccounts.length + kiroAccounts.length + cursorAccounts.length + grokAccounts.length + kimiAccounts.length;
   const trayUsageRows = useMemo(() => buildTrayUsageRows({
     githubCopilot: copilotAccounts,
     codex: codexAccounts,
@@ -536,6 +557,7 @@ export function App() {
     kiro: kiroAccounts,
     cursor: cursorAccounts,
     grok: grokAccounts,
+    kimi: kimiAccounts,
   }, providerOrder), [
     copilotAccounts,
     codexAccounts,
@@ -544,6 +566,7 @@ export function App() {
     kiroAccounts,
     cursorAccounts,
     grokAccounts,
+    kimiAccounts,
     providerOrder,
   ]);
 
@@ -555,6 +578,7 @@ export function App() {
     void loadKiroAccounts();
     void loadCursorAccounts();
     void loadGrokAccounts();
+    void loadKimiAccounts();
   }, []);
 
   useEffect(() => {
@@ -676,6 +700,99 @@ export function App() {
       setGrokError(null);
     } catch (error) {
       setGrokError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function loadKimiAccounts() {
+    try {
+      setKimiAccounts(await listKimiAccounts());
+      setKimiError(null);
+    } catch (error) {
+      setKimiError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function startKimiAuth() {
+    setKimiPendingLoginId(null);
+    setKimiFormRequested(true);
+    setKimiError(null);
+    setView('integrations');
+  }
+
+  // Kimi uses an API key, not OAuth: the key is validated against the balance
+  // endpoint first and only stored (in the OS credential store) if it works.
+  async function submitKimiKey() {
+    if (kimiKeyInput.trim().length === 0) {
+      setKimiError('Paste an API key first');
+      return;
+    }
+    setKimiBusy(true);
+    try {
+      const loginId = await startKimiAddKey(kimiKeyInput.trim(), kimiLabelInput.trim() || undefined);
+      const account = await completeKimiAddKey(loginId);
+      setKimiAccounts((accounts) => [account, ...accounts.filter((item) => item.id !== account.id)]);
+      setKimiKeyInput('');
+      setKimiLabelInput('');
+      setKimiPendingLoginId(null);
+      setKimiFormRequested(false);
+      setKimiError(null);
+      setView('dashboard');
+      void refreshKimi(account.id);
+    } catch (error) {
+      setKimiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setKimiBusy(false);
+    }
+  }
+
+  async function cancelKimiAuth() {
+    try {
+      await cancelKimiAddKey(kimiPendingLoginId);
+    } catch {
+      // The pending entry expiring is harmless.
+    }
+    setKimiPendingLoginId(null);
+    setKimiFormRequested(false);
+    setKimiKeyInput('');
+    setKimiLabelInput('');
+    setKimiError(null);
+  }
+
+  async function refreshKimi(accountId: string) {
+    setKimiBusy(true);
+    try {
+      const account = await refreshKimiAccount(accountId);
+      setKimiAccounts((accounts) => accounts.map((item) => (item.id === account.id ? account : item)));
+      setKimiError(null);
+    } catch (error) {
+      setKimiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setKimiBusy(false);
+    }
+  }
+
+  async function refreshAllKimi() {
+    setKimiBusy(true);
+    try {
+      setKimiAccounts(await refreshAllKimiAccounts());
+      setKimiError(null);
+    } catch (error) {
+      setKimiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setKimiBusy(false);
+    }
+  }
+
+  async function removeKimiAccount(accountId: string) {
+    setKimiBusy(true);
+    try {
+      await deleteKimiAccount(accountId);
+      setKimiAccounts((accounts) => accounts.filter((item) => item.id !== accountId));
+      setKimiError(null);
+    } catch (error) {
+      setKimiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setKimiBusy(false);
     }
   }
 
@@ -1258,6 +1375,18 @@ export function App() {
     }
   }
 
+  // Fallback for when the browser does not open: copies the full login URL
+  // (challenge, uuid and mode included) so the user can paste it manually.
+  async function copyCursorLoginUrl() {
+    if (!cursorLogin) return;
+    try {
+      await navigator.clipboard.writeText(cursorLogin.verificationUri);
+      setCursorError('Login URL copied to clipboard. Paste it into your browser to continue.');
+    } catch {
+      setCursorError('Could not copy the login URL. Select and copy it manually.');
+    }
+  }
+
   async function completeCursorAuth() {
     if (!cursorLogin) return;
     setCursorBusy(true);
@@ -1459,6 +1588,7 @@ export function App() {
       if (kiroAccounts.length > 0 && !kiroBusy) refreshTasks.push(refreshAllKiro);
       if (cursorAccounts.length > 0 && !cursorBusy) refreshTasks.push(refreshAllCursor);
       if (grokAccounts.length > 0 && !grokBusy) refreshTasks.push(refreshAllGrok);
+      if (kimiAccounts.length > 0 && !kimiBusy) refreshTasks.push(refreshAllKimi);
 
       for (const refreshTask of refreshTasks) {
         await refreshTask();
@@ -1574,6 +1704,7 @@ export function App() {
         kiro: kiroAccounts.length,
         cursor: cursorAccounts.length,
         grok: grokAccounts.length,
+        kimi: kimiAccounts.length,
       },
       providers: {
         githubCopilot: copilotAccounts,
@@ -1583,6 +1714,7 @@ export function App() {
         kiro: kiroAccounts,
         cursor: cursorAccounts,
         grok: grokAccounts,
+        kimi: kimiAccounts,
       },
     };
     const json = JSON.stringify(payload, null, 2);
@@ -1652,6 +1784,7 @@ export function App() {
             kiroAccounts={kiroAccounts}
             cursorAccounts={cursorAccounts}
             grokAccounts={grokAccounts}
+            kimiAccounts={kimiAccounts}
             copilotBusy={copilotBusy}
             codexBusy={codexBusy}
             antigravityBusy={antigravityBusy}
@@ -1659,6 +1792,7 @@ export function App() {
             kiroBusy={kiroBusy}
             cursorBusy={cursorBusy}
             grokBusy={grokBusy}
+            kimiBusy={kimiBusy}
             copilotError={copilotError}
             codexError={codexError}
             antigravityError={antigravityError}
@@ -1666,6 +1800,7 @@ export function App() {
             kiroError={kiroError}
             cursorError={cursorError}
             grokError={grokError}
+            kimiError={kimiError}
             onRefreshAllCopilot={refreshAllCopilot}
             onRefreshCopilotAccount={refreshCopilotAccount}
             onRemoveCopilotAccount={removeCopilotAccount}
@@ -1690,6 +1825,9 @@ export function App() {
             onRefreshGrokAccount={refreshGrok}
             onRemoveGrokAccount={removeGrokAccount}
             onReauthenticateGrok={startGrokAuth}
+            onRefreshAllKimi={refreshAllKimi}
+            onRefreshKimiAccount={refreshKimi}
+            onRemoveKimiAccount={removeKimiAccount}
             onOpenIntegrations={() => setView('integrations')}
             onOpenCopilotAccounts={() => setView('github-copilot-accounts')}
             onOpenCodexAccounts={() => setView('codex-accounts')}
@@ -1698,6 +1836,7 @@ export function App() {
             onOpenKiroAccounts={() => setView('kiro-accounts')}
             onOpenCursorAccounts={() => setView('cursor-accounts')}
             onOpenGrokAccounts={() => setView('grok-accounts')}
+            onOpenKimiAccounts={() => setView('kimi-accounts')}
           />
         ) : view === 'settings' ? (
           <SettingsView
@@ -1823,6 +1962,20 @@ export function App() {
             onReauthenticate={startGrokAuth}
             onTogglePinnedAccount={togglePinnedAccount}
           />
+        ) : view === 'kimi-accounts' ? (
+          <KimiAccountsView
+            viewMode={accountPagesViewMode}
+            accounts={kimiAccounts}
+            busy={kimiBusy}
+            error={kimiError}
+            pinnedAccounts={pinnedAccounts}
+            onBack={() => setView('dashboard')}
+            onOpenIntegrations={() => setView('integrations')}
+            onRefreshAll={refreshAllKimi}
+            onRefreshAccount={refreshKimi}
+            onRemoveAccount={removeKimiAccount}
+            onTogglePinnedAccount={togglePinnedAccount}
+          />
         ) : (
           <IntegrationsView
             connectedCount={connectedCount}
@@ -1832,6 +1985,7 @@ export function App() {
             kiroConnectedCount={kiroAccounts.length}
             cursorConnectedCount={cursorAccounts.length}
             grokConnectedCount={grokAccounts.length}
+            kimiConnectedCount={kimiAccounts.length}
             copilotBusy={copilotBusy}
             codexBusy={codexBusy}
             antigravityBusy={antigravityBusy}
@@ -1839,6 +1993,7 @@ export function App() {
             kiroBusy={kiroBusy}
             cursorBusy={cursorBusy}
             grokBusy={grokBusy}
+            kimiBusy={kimiBusy}
             copilotError={copilotError}
             codexError={codexError}
             antigravityError={antigravityError}
@@ -1846,6 +2001,7 @@ export function App() {
             kiroError={kiroError}
             cursorError={cursorError}
             grokError={grokError}
+            kimiError={kimiError}
             copilotLogin={copilotLogin}
             codexLogin={codexLogin}
             antigravityLogin={antigravityLogin}
@@ -1873,6 +2029,7 @@ export function App() {
             onOpenClaudeAuthUrl={openClaudeAuthUrl}
             onOpenKiroAuthUrl={openKiroAuthUrl}
             onOpenCursorAuthUrl={openCursorAuthUrl}
+            onCopyCursorLoginUrl={copyCursorLoginUrl}
             onOpenGrokAuthUrl={openGrokAuthUrl}
             onCompleteCopilotAuth={completeCopilotAuth}
             onCompleteCodexAuth={completeCodexAuth}
@@ -1890,6 +2047,14 @@ export function App() {
             onCancelGrokAuth={cancelGrokAuth}
             onClaudeCallbackInputChange={setClaudeCallbackInput}
             onClaudeEmailHintChange={setClaudeEmailHint}
+            kimiFormOpen={kimiFormRequested}
+            kimiKeyInput={kimiKeyInput}
+            kimiLabelInput={kimiLabelInput}
+            onKimiKeyInputChange={setKimiKeyInput}
+            onKimiLabelInputChange={setKimiLabelInput}
+            onStartKimiAuth={startKimiAuth}
+            onSubmitKimiKey={submitKimiKey}
+            onCancelKimiAuth={cancelKimiAuth}
           />
         )}
       </section>
@@ -2274,6 +2439,7 @@ interface DashboardViewProps {
   kiroAccounts: KiroAccountSummary[];
   cursorAccounts: CursorAccountSummary[];
   grokAccounts: GrokAccountSummary[];
+  kimiAccounts: KimiAccountSummary[];
   copilotBusy: boolean;
   codexBusy: boolean;
   antigravityBusy: boolean;
@@ -2281,6 +2447,7 @@ interface DashboardViewProps {
   kiroBusy: boolean;
   cursorBusy: boolean;
   grokBusy: boolean;
+  kimiBusy: boolean;
   copilotError: string | null;
   codexError: string | null;
   antigravityError: string | null;
@@ -2288,6 +2455,7 @@ interface DashboardViewProps {
   kiroError: string | null;
   cursorError: string | null;
   grokError: string | null;
+  kimiError: string | null;
   onRefreshAllCopilot: () => void;
   onRefreshCopilotAccount: (accountId: string) => void;
   onRemoveCopilotAccount: (accountId: string) => void;
@@ -2312,6 +2480,9 @@ interface DashboardViewProps {
   onRefreshGrokAccount: (accountId: string) => void;
   onRemoveGrokAccount: (accountId: string) => void;
   onReauthenticateGrok: () => void;
+  onRefreshAllKimi: () => void;
+  onRefreshKimiAccount: (accountId: string) => void;
+  onRemoveKimiAccount: (accountId: string) => void;
   onOpenIntegrations: () => void;
   onOpenCopilotAccounts: () => void;
   onOpenCodexAccounts: () => void;
@@ -2320,6 +2491,7 @@ interface DashboardViewProps {
   onOpenKiroAccounts: () => void;
   onOpenCursorAccounts: () => void;
   onOpenGrokAccounts: () => void;
+  onOpenKimiAccounts: () => void;
 }
 
 function DashboardView({
@@ -2335,6 +2507,7 @@ function DashboardView({
   kiroAccounts,
   cursorAccounts,
   grokAccounts,
+  kimiAccounts,
   copilotBusy,
   codexBusy,
   antigravityBusy,
@@ -2342,6 +2515,7 @@ function DashboardView({
   kiroBusy,
   cursorBusy,
   grokBusy,
+  kimiBusy,
   copilotError,
   codexError,
   antigravityError,
@@ -2349,6 +2523,7 @@ function DashboardView({
   kiroError,
   cursorError,
   grokError,
+  kimiError,
   onRefreshAllCopilot,
   onRefreshCopilotAccount,
   onRemoveCopilotAccount,
@@ -2373,6 +2548,9 @@ function DashboardView({
   onRefreshGrokAccount,
   onRemoveGrokAccount,
   onReauthenticateGrok,
+  onRefreshAllKimi,
+  onRefreshKimiAccount,
+  onRemoveKimiAccount,
   onOpenIntegrations,
   onOpenCopilotAccounts,
   onOpenCodexAccounts,
@@ -2381,6 +2559,7 @@ function DashboardView({
   onOpenKiroAccounts,
   onOpenCursorAccounts,
   onOpenGrokAccounts,
+  onOpenKimiAccounts,
 }: DashboardViewProps) {
   const visibleCopilotAccounts = getVisibleAccounts(copilotAccounts, pinnedAccounts);
   const visibleCodexAccounts = getVisibleAccounts(codexAccounts, pinnedAccounts);
@@ -2389,6 +2568,7 @@ function DashboardView({
   const visibleKiroAccounts = getVisibleAccounts(kiroAccounts, pinnedAccounts);
   const visibleCursorAccounts = getVisibleAccounts(cursorAccounts, pinnedAccounts);
   const visibleGrokAccounts = getVisibleAccounts(grokAccounts, pinnedAccounts);
+  const visibleKimiAccounts = getVisibleAccounts(kimiAccounts, pinnedAccounts);
   const hasAccounts =
     copilotAccounts.length > 0 ||
     codexAccounts.length > 0 ||
@@ -2396,7 +2576,8 @@ function DashboardView({
     claudeAccounts.length > 0 ||
     kiroAccounts.length > 0 ||
     cursorAccounts.length > 0 ||
-    grokAccounts.length > 0;
+    grokAccounts.length > 0 ||
+    kimiAccounts.length > 0;
 
   return (
     <div className={`page-stack dashboard-view dashboard-view--${viewMode}`}>
@@ -2415,6 +2596,7 @@ function DashboardView({
                 onRefreshAllKiro();
                 onRefreshAllCursor();
                 onRefreshAllGrok();
+                onRefreshAllKimi();
               }}
               disabled={
                 (copilotBusy || copilotAccounts.length === 0) &&
@@ -2423,7 +2605,8 @@ function DashboardView({
                 (claudeBusy || claudeAccounts.length === 0) &&
                 (kiroBusy || kiroAccounts.length === 0) &&
                 (cursorBusy || cursorAccounts.length === 0) &&
-                (grokBusy || grokAccounts.length === 0)
+                (grokBusy || grokAccounts.length === 0) &&
+                (kimiBusy || kimiAccounts.length === 0)
               }
             >
               <RefreshCcw size={15} />
@@ -2444,6 +2627,7 @@ function DashboardView({
       {kiroError ? <p className="account-panel__error">{kiroError}</p> : null}
       {cursorError ? <p className="account-panel__error">{cursorError}</p> : null}
       {grokError ? <p className="account-panel__error">{grokError}</p> : null}
+      {kimiError ? <p className="account-panel__error">{kimiError}</p> : null}
 
       <ProviderSummaryGrid
         copilotCount={copilotAccounts.length}
@@ -2453,6 +2637,7 @@ function DashboardView({
         kiroCount={kiroAccounts.length}
         cursorCount={cursorAccounts.length}
         grokCount={grokAccounts.length}
+        kimiCount={kimiAccounts.length}
         providerOrder={providerOrder}
         onOpenCopilotAccounts={onOpenCopilotAccounts}
         onOpenCodexAccounts={onOpenCodexAccounts}
@@ -2461,6 +2646,7 @@ function DashboardView({
         onOpenKiroAccounts={onOpenKiroAccounts}
         onOpenCursorAccounts={onOpenCursorAccounts}
         onOpenGrokAccounts={onOpenGrokAccounts}
+        onOpenKimiAccounts={onOpenKimiAccounts}
       />
 
       {!hasAccounts ? (
@@ -2772,6 +2958,49 @@ function DashboardView({
                     onRefresh={() => onRefreshGrokAccount(account.id)}
                     onRemove={() => onRemoveGrokAccount(account.id)}
                     onReauthenticate={onReauthenticateGrok}
+                    onTogglePin={() => onTogglePinnedAccount(account.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {kimiAccounts.length > 0 && !hiddenProviders.has('kimi') ? (
+            <section
+              className="provider-section"
+              aria-labelledby="kimi-section-title"
+              style={{ order: getProviderOrderIndex(providerOrder, 'kimi') }}
+            >
+              <div className="provider-section__header">
+                <div>
+                  <span className="provider-section__eyebrow">Connected provider</span>
+                  <h2 id="kimi-section-title">
+                    <BrandIcon src={KIMI_ICON} alt="" size="small" />
+                    Kimi
+                  </h2>
+                </div>
+                <div className="button-row">
+                  <button type="button" onClick={onRefreshAllKimi} disabled={kimiBusy || kimiAccounts.length === 0}>
+                    <RefreshCcw size={15} />
+                    Refresh
+                  </button>
+                  <button type="button" onClick={onOpenKimiAccounts}>
+                    <Users size={15} />
+                    View all accounts
+                  </button>
+                </div>
+              </div>
+
+              <div className="dashboard-grid">
+                {visibleKimiAccounts.map((account) => (
+                  <KimiUsageCard
+                    key={account.id}
+                    account={account}
+                    busy={kimiBusy}
+                    pinned={pinnedAccounts.has(account.id)}
+                    dashboardMode={true}
+                    onRefresh={() => onRefreshKimiAccount(account.id)}
+                    onRemove={() => onRemoveKimiAccount(account.id)}
                     onTogglePin={() => onTogglePinnedAccount(account.id)}
                   />
                 ))}
@@ -3353,6 +3582,7 @@ interface ProviderSummaryGridProps {
   kiroCount: number;
   cursorCount: number;
   grokCount: number;
+  kimiCount: number;
   providerOrder: ProviderKey[];
   onOpenCopilotAccounts: () => void;
   onOpenCodexAccounts: () => void;
@@ -3361,6 +3591,7 @@ interface ProviderSummaryGridProps {
   onOpenKiroAccounts: () => void;
   onOpenCursorAccounts: () => void;
   onOpenGrokAccounts: () => void;
+  onOpenKimiAccounts: () => void;
 }
 
 function ProviderSummaryGrid({
@@ -3371,6 +3602,7 @@ function ProviderSummaryGrid({
   kiroCount,
   cursorCount,
   grokCount,
+  kimiCount,
   providerOrder,
   onOpenCopilotAccounts,
   onOpenCodexAccounts,
@@ -3379,8 +3611,9 @@ function ProviderSummaryGrid({
   onOpenKiroAccounts,
   onOpenCursorAccounts,
   onOpenGrokAccounts,
+  onOpenKimiAccounts,
 }: ProviderSummaryGridProps) {
-  const totalCount = copilotCount + codexCount + antigravityCount + claudeCount + kiroCount + cursorCount + grokCount;
+  const totalCount = copilotCount + codexCount + antigravityCount + claudeCount + kiroCount + cursorCount + grokCount + kimiCount;
   const providerSummaries = PROVIDERS.map((provider) => {
     const connected =
       provider.key === 'githubCopilot'
@@ -3395,7 +3628,9 @@ function ProviderSummaryGrid({
                 ? kiroCount
                 : provider.key === 'cursor'
                   ? cursorCount
-                  : grokCount;
+                  : provider.key === 'grok'
+                    ? grokCount
+                    : kimiCount;
     const openAccounts =
       provider.key === 'githubCopilot'
         ? onOpenCopilotAccounts
@@ -3409,7 +3644,9 @@ function ProviderSummaryGrid({
                 ? onOpenKiroAccounts
                 : provider.key === 'cursor'
                   ? onOpenCursorAccounts
-                  : onOpenGrokAccounts;
+                  : provider.key === 'grok'
+                    ? onOpenGrokAccounts
+                    : onOpenKimiAccounts;
 
     return { ...provider, connected, openAccounts };
   }).sort((a, b) => getProviderOrderIndex(providerOrder, a.key) - getProviderOrderIndex(providerOrder, b.key));
@@ -3455,6 +3692,7 @@ interface IntegrationsViewProps {
   kiroConnectedCount: number;
   cursorConnectedCount: number;
   grokConnectedCount: number;
+  kimiConnectedCount: number;
   copilotBusy: boolean;
   codexBusy: boolean;
   antigravityBusy: boolean;
@@ -3462,6 +3700,7 @@ interface IntegrationsViewProps {
   kiroBusy: boolean;
   cursorBusy: boolean;
   grokBusy: boolean;
+  kimiBusy: boolean;
   copilotError: string | null;
   codexError: string | null;
   antigravityError: string | null;
@@ -3469,6 +3708,7 @@ interface IntegrationsViewProps {
   kiroError: string | null;
   cursorError: string | null;
   grokError: string | null;
+  kimiError: string | null;
   copilotLogin: GitHubCopilotOAuthStartResponse | null;
   codexLogin: CodexOAuthStartResponse | null;
   antigravityLogin: AntigravityOAuthStartResponse | null;
@@ -3496,6 +3736,7 @@ interface IntegrationsViewProps {
   onOpenClaudeAuthUrl: () => void;
   onOpenKiroAuthUrl: () => void;
   onOpenCursorAuthUrl: () => void;
+  onCopyCursorLoginUrl: () => void;
   onOpenGrokAuthUrl: () => void;
   onCompleteCopilotAuth: () => void;
   onCompleteCodexAuth: () => void;
@@ -3513,6 +3754,14 @@ interface IntegrationsViewProps {
   onCancelGrokAuth: () => void;
   onClaudeCallbackInputChange: (value: string) => void;
   onClaudeEmailHintChange: (value: string) => void;
+  kimiFormOpen: boolean;
+  kimiKeyInput: string;
+  kimiLabelInput: string;
+  onKimiKeyInputChange: (value: string) => void;
+  onKimiLabelInputChange: (value: string) => void;
+  onStartKimiAuth: () => void;
+  onSubmitKimiKey: () => void;
+  onCancelKimiAuth: () => void;
 }
 
 function IntegrationsView({
@@ -3523,6 +3772,7 @@ function IntegrationsView({
   kiroConnectedCount,
   cursorConnectedCount,
   grokConnectedCount,
+  kimiConnectedCount,
   copilotBusy,
   codexBusy,
   antigravityBusy,
@@ -3530,6 +3780,7 @@ function IntegrationsView({
   kiroBusy,
   cursorBusy,
   grokBusy,
+  kimiBusy,
   copilotError,
   codexError,
   antigravityError,
@@ -3537,6 +3788,7 @@ function IntegrationsView({
   kiroError,
   cursorError,
   grokError,
+  kimiError,
   copilotLogin,
   codexLogin,
   antigravityLogin,
@@ -3564,6 +3816,7 @@ function IntegrationsView({
   onOpenClaudeAuthUrl,
   onOpenKiroAuthUrl,
   onOpenCursorAuthUrl,
+  onCopyCursorLoginUrl,
   onOpenGrokAuthUrl,
   onCompleteCopilotAuth,
   onCompleteCodexAuth,
@@ -3581,6 +3834,14 @@ function IntegrationsView({
   onCancelGrokAuth,
   onClaudeCallbackInputChange,
   onClaudeEmailHintChange,
+  kimiFormOpen,
+  kimiKeyInput,
+  kimiLabelInput,
+  onKimiKeyInputChange,
+  onKimiLabelInputChange,
+  onStartKimiAuth,
+  onSubmitKimiKey,
+  onCancelKimiAuth,
 }: IntegrationsViewProps) {
   return (
     <div className="page-stack">
@@ -3596,6 +3857,56 @@ function IntegrationsView({
       {kiroError ? <p className="account-panel__error">{kiroError}</p> : null}
       {cursorError ? <p className="account-panel__error">{cursorError}</p> : null}
       {grokError ? <p className="account-panel__error">{grokError}</p> : null}
+      {kimiError ? <p className="account-panel__error">{kimiError}</p> : null}
+
+      {kimiFormOpen ? (
+        <div className="auth-panel">
+          <div>
+            <span className="auth-panel__label">Kimi API key</span>
+            <strong>Kimi</strong>
+          </div>
+          <p>
+            Paste a key from the Kimi Code console (kimi.ai/code → API keys). It is validated against the usage
+            endpoint and stored in the Windows Credential Manager, never in a file.
+          </p>
+          <div className="auth-panel__fields">
+            <label>
+              API key
+              <input
+                type="password"
+                placeholder="sk-..."
+                value={kimiKeyInput}
+                onChange={(event) => onKimiKeyInputChange(event.target.value)}
+                disabled={kimiBusy}
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              Label (optional, e.g. Work)
+              <input
+                type="text"
+                placeholder="Kimi"
+                value={kimiLabelInput}
+                onChange={(event) => onKimiLabelInputChange(event.target.value)}
+                disabled={kimiBusy}
+              />
+            </label>
+          </div>
+          <div className="button-row">
+            <button
+              type="button"
+              className="button-primary"
+              onClick={onSubmitKimiKey}
+              disabled={kimiBusy || kimiKeyInput.trim().length === 0}
+            >
+              Add key
+            </button>
+            <button type="button" onClick={onCancelKimiAuth} disabled={kimiBusy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {copilotLogin ? (
         <div className="auth-panel">
@@ -3744,6 +4055,10 @@ function IntegrationsView({
               <ExternalLink size={15} />
               Open Cursor
             </button>
+            <button type="button" onClick={onCopyCursorLoginUrl} disabled={cursorBusy}>
+              <Copy size={15} />
+              Copy login URL
+            </button>
             <button type="button" className="button-primary" onClick={onCompleteCursorAuth} disabled={cursorBusy}>
               Complete connection
             </button>
@@ -3785,7 +4100,8 @@ function IntegrationsView({
           const isKiro = integration.name === 'Kiro';
           const isCursor = integration.name === 'Cursor';
           const isGrok = integration.name === 'Grok';
-          const copilotCount = connectedCount - codexConnectedCount - antigravityConnectedCount - claudeConnectedCount - kiroConnectedCount - cursorConnectedCount - grokConnectedCount;
+          const isKimi = integration.name === 'Kimi';
+          const copilotCount = connectedCount - codexConnectedCount - antigravityConnectedCount - claudeConnectedCount - kiroConnectedCount - cursorConnectedCount - grokConnectedCount - kimiConnectedCount;
           return (
             <article className="integration-row" key={integration.name}>
               <div className="integration-row__icon">
@@ -3809,7 +4125,9 @@ function IntegrationsView({
                                 ? `${cursorConnectedCount} connected`
                                 : isGrok
                                   ? `${grokConnectedCount} connected`
-                                  : integration.status}
+                                  : isKimi
+                                    ? `${kimiConnectedCount} connected`
+                                    : integration.status}
                   </span>
                 </div>
                 <p>{integration.description}</p>
@@ -3879,6 +4197,11 @@ function IntegrationsView({
                     Import local
                   </button>
                 </div>
+              ) : isKimi ? (
+                <button type="button" className="button-primary" onClick={onStartKimiAuth} disabled={kimiBusy}>
+                  <Plus size={15} />
+                  Connect
+                </button>
               ) : (
                 <button type="button" disabled>
                   Planned
@@ -3888,6 +4211,98 @@ function IntegrationsView({
           );
         })}
       </section>
+    </div>
+  );
+}
+
+interface KimiAccountsViewProps {
+  viewMode: ViewMode;
+  accounts: KimiAccountSummary[];
+  busy: boolean;
+  error: string | null;
+  pinnedAccounts: Set<string>;
+  onBack: () => void;
+  onOpenIntegrations: () => void;
+  onRefreshAll: () => void;
+  onRefreshAccount: (accountId: string) => void;
+  onRemoveAccount: (accountId: string) => void;
+  onTogglePinnedAccount: (accountId: string) => void;
+}
+
+function KimiAccountsView({
+  viewMode,
+  accounts,
+  busy,
+  error,
+  pinnedAccounts,
+  onBack,
+  onOpenIntegrations,
+  onRefreshAll,
+  onRefreshAccount,
+  onRemoveAccount,
+  onTogglePinnedAccount,
+}: KimiAccountsViewProps) {
+  return (
+    <div className="page-stack">
+      <PageHeader
+        title="Kimi Accounts"
+        description="Kimi (Moonshot AI) API keys with pay-as-you-go balance summaries."
+        action={
+          <div className="button-row">
+            <button type="button" onClick={onBack}>
+              <ArrowLeft size={15} />
+              Dashboard
+            </button>
+            <button type="button" onClick={onRefreshAll} disabled={busy || accounts.length === 0}>
+              <RefreshCcw size={15} />
+              Refresh all
+            </button>
+            <button type="button" className="button-primary" onClick={onOpenIntegrations}>
+              <Plus size={15} />
+              Add key
+            </button>
+          </div>
+        }
+      />
+
+      {error ? <p className="account-panel__error">{error}</p> : null}
+
+      <section className="account-view-toolbar" aria-label="Kimi account summary">
+        <div>
+          <span>Total keys</span>
+          <strong>{accounts.length}</strong>
+        </div>
+        <div>
+          <span>Provider</span>
+          <strong>Kimi</strong>
+        </div>
+      </section>
+
+      {accounts.length === 0 ? (
+        <div className="empty-state empty-state--large">
+          <BrandIcon src={KIMI_ICON} alt="" size="large" />
+          <strong>No Kimi API keys connected.</strong>
+          <span>Add a key from the Kimi Code console (kimi.ai/code) and this page will show its quota.</span>
+          <button type="button" className="button-primary" onClick={onOpenIntegrations}>
+            <Plus size={15} />
+            Open integrations
+          </button>
+        </div>
+      ) : (
+        <section className={`accounts-grid accounts-grid--${viewMode}`} aria-label="All Kimi accounts">
+          {accounts.map((account) => (
+            <KimiUsageCard
+              key={account.id}
+              account={account}
+              busy={busy}
+              pinned={pinnedAccounts.has(account.id)}
+              onRefresh={() => onRefreshAccount(account.id)}
+              onRemove={() => onRemoveAccount(account.id)}
+              onTogglePin={() => onTogglePinnedAccount(account.id)}
+            />
+          ))}
+        </section>
+      )}
     </div>
   );
 }
@@ -4766,6 +5181,116 @@ function GrokUsageCard({ account, busy, pinned, dashboardMode = false, onRemove,
         <p className="usage-card__error" role="alert">{account.quotaQueryLastError}</p>
       ) : null}
     </article>
+  );
+}
+
+interface KimiUsageCardProps {
+  account: KimiAccountSummary;
+  busy: boolean;
+  pinned: boolean;
+  dashboardMode?: boolean;
+  onRefresh: () => void;
+  onRemove: () => void;
+  onTogglePin: () => void;
+}
+
+function KimiUsageCard({ account, busy, pinned, dashboardMode = false, onRefresh, onRemove, onTogglePin }: KimiUsageCardProps) {
+  const exhausted = account.monthlyRemainingPercent != null && account.monthlyRemainingPercent <= 0;
+
+  return (
+    <article className="usage-card">
+      <div className="usage-card__header">
+        <div>
+          <span className="usage-card__provider">
+            <BrandIcon src={KIMI_ICON} alt="" size="small" />
+            Kimi
+          </span>
+          <h2>{account.label}</h2>
+          <p>
+            {account.keyHint ?? 'API key'}
+            {' · Kimi Code subscription'}
+            {account.userLevelName ? <span className="plan-badge" style={{ marginLeft: '6px' }}>{account.userLevelName}</span> : null}
+          </p>
+        </div>
+        <div className="button-row usage-card__actions">
+          {(!dashboardMode || pinned) ? (
+            <button
+              type="button"
+              className={pinned ? 'usage-card__pin usage-card__pin--pinned' : 'usage-card__pin'}
+              onClick={onTogglePin}
+              aria-label={pinned ? 'Unpin account from dashboard' : 'Pin account to dashboard'}
+            >
+              {pinned ? <PinOff size={14} /> : <Pin size={14} />}
+            </button>
+          ) : null}
+          <button type="button" onClick={onRefresh} disabled={busy} aria-label="Refresh Kimi usage">
+            <RefreshCcw size={14} />
+          </button>
+          <button type="button" onClick={onRemove} disabled={busy} aria-label="Remove Kimi account">
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="usage-card__rows">
+        <KimiMetricRow
+          label="Monthly quota"
+          remainingPercent={account.monthlyRemainingPercent}
+          resetAt={account.monthlyResetAt}
+        />
+        <KimiMetricRow
+          label="5-hour window"
+          remainingPercent={account.fiveHourRemainingPercent}
+          resetAt={account.fiveHourResetAt}
+        />
+
+        {account.rateLimitLimit != null ? (
+          <div className="usage-metric">
+            <div className="usage-metric__line">
+              <span>Rate window</span>
+              <strong>{`${account.rateLimitRemaining ?? 0}/${account.rateLimitLimit} left`}</strong>
+            </div>
+            <div className="usage-metric__meta">{formatResetLine(account.rateLimitResetAt)}</div>
+          </div>
+        ) : null}
+
+        {exhausted ? (
+          <div className="usage-metric">
+            <div className="usage-metric__meta">
+              Monthly quota exhausted — renew or upgrade at kimi.ai/code.
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {account.quotaQueryLastError ? (
+        <p className="usage-card__error" role="alert">{account.quotaQueryLastError}</p>
+      ) : null}
+    </article>
+  );
+}
+
+interface KimiMetricRowProps {
+  label: string;
+  remainingPercent?: number | null;
+  resetAt?: number | null;
+}
+
+function KimiMetricRow({ label, remainingPercent, resetAt }: KimiMetricRowProps) {
+  const remaining = remainingPercent == null ? null : Math.round(Math.max(0, Math.min(100, remainingPercent)));
+  const toneClass = remaining != null && remaining <= 20 ? ' usage-metric--remaining-low' : '';
+
+  return (
+    <div className={`usage-metric usage-metric--remaining${toneClass}`}>
+      <div className="usage-metric__line">
+        <span>{label}</span>
+        <strong>{remaining == null ? '-' : `${remaining}% left`}</strong>
+      </div>
+      <div className="usage-metric__bar" aria-hidden="true">
+        <span style={{ width: `${remaining ?? 0}%` }} />
+      </div>
+      <div className="usage-metric__meta">{formatResetLine(resetAt)}</div>
+    </div>
   );
 }
 

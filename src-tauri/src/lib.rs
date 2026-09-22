@@ -6,8 +6,10 @@ pub mod claude;
 pub mod codex;
 pub mod cursor;
 pub mod external_open;
+pub mod token_store;
 mod github_copilot;
 pub mod grok;
+pub mod kimi;
 pub mod kiro;
 mod tray;
 
@@ -117,7 +119,14 @@ pub fn run() {
             grok::grok_oauth_login_cancel,
             grok::refresh_grok_account,
             grok::refresh_all_grok_accounts,
-            grok::delete_grok_account
+            grok::delete_grok_account,
+            kimi::list_kimi_accounts,
+            kimi::kimi_add_key_start,
+            kimi::kimi_add_key_complete,
+            kimi::kimi_add_key_cancel,
+            kimi::refresh_kimi_account,
+            kimi::refresh_all_kimi_accounts,
+            kimi::delete_kimi_account
         ])
         .run(tauri::generate_context!())
         .expect("error while running Quota");

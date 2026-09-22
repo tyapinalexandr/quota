@@ -32,3 +32,11 @@ tokio = { version = "1", features = ["time"] }
 urlencoding = "2"
 tiny_http = "0.12"
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -10,7 +10,11 @@
 //! This module opens URLs itself so the launcher is spawned with the AppImage
 //! variables stripped from the child environment.
 
+#[cfg(not(target_os = "windows"))]
 use std::process::{Command, Stdio};
+// On Windows only the `sanitize_appimage_env` no-op signature needs `Command`.
+#[cfg(target_os = "windows")]
+use std::process::Command;
 
 #[cfg(target_os = "linux")]
 use std::ffi::OsStr;
@@ -166,11 +170,48 @@ fn launcher_commands(url: &str) -> Vec<Command> {
     vec![open]
 }
 
+/// Opens the URL through `ShellExecuteW` ("open" verb), which resolves the
+/// default browser from the registry and hands it the URL untouched. The
+/// previous `cmd /C start` approach ran the URL through `cmd.exe`, which
+/// splits it on `&` and similar characters, so OAuth links like
+/// `https://cursor.com/loginDeepControl?challenge=...&uuid=...&mode=login`
+/// arrived at the browser truncated.
 #[cfg(target_os = "windows")]
-fn launcher_commands(url: &str) -> Vec<Command> {
-    let mut cmd = Command::new("cmd");
-    cmd.args(["/C", "start", "", url]);
-    vec![cmd]
+fn shell_execute_open(url: &str) -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    fn to_wide(value: &OsStr) -> Vec<u16> {
+        value.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    let verb = to_wide(OsStr::new("open"));
+    let file = to_wide(OsStr::new(url));
+
+    // ShellExecuteW returns an HINSTANCE-style value; anything <= 32 is an
+    // error code, not a real instance handle.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+
+    if result as usize > 32 {
+        Ok(())
+    } else {
+        Err(format!(
+            "ShellExecuteW could not open the URL (error code {})",
+            result as usize
+        ))
+    }
 }
 
 /// Opens `url` in the user's default browser.
@@ -190,6 +231,14 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
 
 /// Runs the launcher candidates in order. Public so the integration tests can
 /// drive the real launch path against a stub launcher.
+#[cfg(target_os = "windows")]
+pub fn spawn_launchers(url: &str) -> Result<(), String> {
+    shell_execute_open(url)
+}
+
+/// Runs the launcher candidates in order. Public so the integration tests can
+/// drive the real launch path against a stub launcher.
+#[cfg(not(target_os = "windows"))]
 pub fn spawn_launchers(url: &str) -> Result<(), String> {
     let mut failures = Vec::new();
 
@@ -227,6 +276,7 @@ mod tests {
             "https://claude.com/cai/oauth/authorize?state=1",
             "https://app.kiro.dev/signin?next=%2F",
             "https://cursor.com/loginDeepControl?uuid=1",
+            "https://cursor.com/loginDeepControl?challenge=abc123&uuid=def456&mode=login",
             "https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH",
             "https://auth.x.ai/oauth2/device?user_code=ABCD-EFGH",
         ] {

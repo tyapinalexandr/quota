@@ -195,7 +195,7 @@ struct RefreshTokenResponse {
 // Utility: timestamps and identity
 // ---------------------------------------------------------------------------
 
-fn now_ts() -> i64 {
+pub(crate) fn now_ts() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
@@ -480,11 +480,41 @@ fn save_index_in(storage_dir: &Path, index: &CursorAccountIndex) -> Result<(), S
 fn load_account_in(storage_dir: &Path, id: &str) -> Result<StoredCursorAccount, String> {
     let content = fs::read_to_string(account_path_in(storage_dir, id))
         .map_err(|e| format!("Could not read Cursor account: {}", e))?;
-    serde_json::from_str(&content).map_err(|e| format!("Could not parse Cursor account: {}", e))
+    let mut account: StoredCursorAccount = serde_json::from_str(&content)
+        .map_err(|e| format!("Could not parse Cursor account: {}", e))?;
+
+    // Accounts saved before the credential store was introduced still hold
+    // plaintext tokens; unseal() passes those through so they keep loading.
+    let needs_migration = !crate::token_store::is_sealed(&account.access_token);
+    account.access_token = crate::token_store::unseal(&account.access_token)?;
+    account.refresh_token = match account.refresh_token.take() {
+        Some(token) => Some(crate::token_store::unseal(&token)?),
+        None => None,
+    };
+
+    // Move legacy tokens into the credential store so the on-disk copy
+    // degrades to a harmless reference.
+    if needs_migration {
+        let _ = save_account_in(storage_dir, &account);
+    }
+
+    Ok(account)
 }
 
 fn save_account_in(storage_dir: &Path, account: &StoredCursorAccount) -> Result<(), String> {
-    let content = serde_json::to_string_pretty(account)
+    // Tokens go into the OS credential store (Windows Credential Manager) and
+    // the JSON on disk only keeps a reference: it never contains the tokens.
+    let mut stored = account.clone();
+    stored.access_token =
+        crate::token_store::seal(&format!("cursor-{}-access", account.id), &account.access_token)?;
+    stored.refresh_token = match &account.refresh_token {
+        Some(token) => Some(crate::token_store::seal(
+            &format!("cursor-{}-refresh", account.id),
+            token,
+        )?),
+        None => None,
+    };
+    let content = serde_json::to_string_pretty(&stored)
         .map_err(|e| format!("Could not encode Cursor account: {}", e))?;
     write_atomic(&account_path_in(storage_dir, &account.id), &content)
 }
@@ -1116,6 +1146,13 @@ pub async fn refresh_all_cursor_accounts() -> Result<Vec<CursorAccountSummary>, 
 #[tauri::command]
 pub fn delete_cursor_account(account_id: String) -> Result<(), String> {
     let dir = quota_storage_dir()?;
+    // Best effort: drop the account's credentials from the OS credential store.
+    if let Ok(account) = load_account_in(&dir, &account_id) {
+        crate::token_store::remove(&account.access_token);
+        if let Some(token) = &account.refresh_token {
+            crate::token_store::remove(token);
+        }
+    }
     let mut index = load_index_in(&dir)?;
     index.account_ids.retain(|id| id != &account_id);
     save_index_in(&dir, &index)?;

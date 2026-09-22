@@ -61,4 +61,12 @@ export const integrations: IntegrationSummary[] = [
       'xAI OIDC device-code login with local ~/.grok/auth.json import; usage from the Grok CLI billing endpoint.',
     iconPath: '/brand-icons/grok.svg',
   },
+  {
+    name: 'Kimi',
+    description: 'Kimi Code subscription API key with monthly and 5-hour quota windows.',
+    status: 'reference',
+    referenceHint:
+      'API key from the Kimi Code console (kimi.ai/code), kept in the OS credential store; quota from api.kimi.com/coding/v1/usages.',
+    iconPath: '/brand-icons/kimi.svg',
+  },
 ];

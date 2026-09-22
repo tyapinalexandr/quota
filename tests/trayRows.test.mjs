@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildTrayUsageRows } from '../src/data/trayRows.ts';
 
-const order = ['githubCopilot', 'codex', 'antigravity', 'claude', 'kiro', 'cursor', 'grok'];
+const order = ['githubCopilot', 'codex', 'antigravity', 'claude', 'kiro', 'cursor', 'grok', 'kimi'];
 
 function emptyAccounts() {
   return {
@@ -13,6 +13,7 @@ function emptyAccounts() {
     kiro: [],
     cursor: [],
     grok: [],
+    kimi: [],
   };
 }
 
@@ -83,5 +84,26 @@ test('keeps connected accounts visible when usage has not loaded', () => {
 
   assert.deepEqual(buildTrayUsageRows(accounts, order), [
     'Claude · claude@example.com · No usage data yet',
+  ]);
+});
+
+test('renders the Kimi subscription quota windows', () => {
+  const accounts = emptyAccounts();
+  accounts.kimi.push({
+    id: 'kimi-1',
+    label: 'Kimi …bfg0J',
+    monthlyRemainingPercent: 92.26,
+    monthlyUsedPercent: 7.74,
+    monthlyResetAt: 1828915200,
+    fiveHourRemainingPercent: 100,
+    fiveHourResetAt: 1784870981,
+    rateLimitRemaining: 81,
+    rateLimitLimit: 100,
+    createdAt: 1,
+    lastUsed: 1,
+  });
+
+  assert.deepEqual(buildTrayUsageRows(accounts, order), [
+    'Kimi · Kimi …bfg0J · Month 92% left · 5h 100% left',
   ]);
 });
