@@ -80,6 +80,8 @@ pub fn run() {
             codex::refresh_codex_account,
             codex::refresh_all_codex_accounts,
             codex::delete_codex_account,
+            codex::set_codex_weekly_resets,
+            codex::use_codex_weekly_reset,
             antigravity::list_antigravity_accounts,
             antigravity::import_antigravity_from_local,
             antigravity::antigravity_oauth_login_start,
@@ -126,7 +128,9 @@ pub fn run() {
             kimi::kimi_add_key_cancel,
             kimi::refresh_kimi_account,
             kimi::refresh_all_kimi_accounts,
-            kimi::delete_kimi_account
+            kimi::delete_kimi_account,
+            kimi::set_kimi_weekly_resets,
+            kimi::use_kimi_weekly_reset
         ])
         .run(tauri::generate_context!())
         .expect("error while running Quota");

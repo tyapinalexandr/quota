@@ -23,6 +23,10 @@ export interface CodexAccountSummary {
   quotaQueryLastErrorAt?: number | null;
   requiresReauthentication: boolean;
   usageUpdatedAt?: number | null;
+  /** Manual tracker: weekly-limit resets left this billing month. */
+  weeklyResetsRemaining?: number | null;
+  /** Unix seconds when the reset counter refills (billing cycle rollover). */
+  weeklyResetsRefillAt?: number | null;
   createdAt: number;
   lastUsed: number;
 }
@@ -64,4 +68,16 @@ export function refreshAllCodexAccounts() {
 
 export function deleteCodexAccount(accountId: string) {
   return invoke<void>('delete_codex_account', { accountId });
+}
+
+export function setCodexWeeklyResets(accountId: string, remaining: number, refillAt?: number | null) {
+  return invoke<CodexAccountSummary>('set_codex_weekly_resets', {
+    accountId,
+    remaining,
+    refillAt: refillAt ?? null,
+  });
+}
+
+export function useCodexWeeklyReset(accountId: string) {
+  return invoke<CodexAccountSummary>('use_codex_weekly_reset', { accountId });
 }

@@ -66,6 +66,13 @@ struct StoredKimiAccount {
     quota_query_last_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     usage_updated_at: Option<i64>,
+    /// Manual tracker: how many weekly-limit resets are still available this
+    /// billing month. `None` until the user sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    weekly_resets_remaining: Option<i32>,
+    /// Unix seconds when the reset counter refills (billing cycle rollover).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    weekly_resets_refill_at: Option<i64>,
     created_at: i64,
     last_used: i64,
 }
@@ -121,6 +128,10 @@ pub struct KimiAccountSummary {
     pub quota_query_last_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_updated_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly_resets_remaining: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly_resets_refill_at: Option<i64>,
     pub created_at: i64,
     pub last_used: i64,
 }
@@ -142,6 +153,8 @@ impl StoredKimiAccount {
             user_level_name: self.user_level_name.clone(),
             quota_query_last_error: self.quota_query_last_error.clone(),
             usage_updated_at: self.usage_updated_at,
+            weekly_resets_remaining: self.weekly_resets_remaining,
+            weekly_resets_refill_at: self.weekly_resets_refill_at,
             created_at: self.created_at,
             last_used: self.last_used,
         }
@@ -585,6 +598,8 @@ pub fn kimi_add_key_complete(login_id: String) -> Result<KimiAccountSummary, Str
         user_level_name: None,
         quota_query_last_error: None,
         usage_updated_at: None,
+        weekly_resets_remaining: None,
+        weekly_resets_refill_at: None,
         created_at: now,
         last_used: now,
     };
@@ -643,6 +658,59 @@ pub fn delete_kimi_account(account_id: String) -> Result<(), String> {
         fs::remove_file(&path).map_err(|e| format!("Could not delete Kimi account: {}", e))?;
     }
     Ok(())
+}
+
+/// The Kimi usage endpoint does not expose how many weekly-limit resets are
+/// left, so this is a manual tracker: the user sets the count (e.g. 2 per
+/// billing month) and taps it down when they spend a reset. `refill_at` marks
+/// when the counter is expected to refill — after that moment the stored count
+/// is treated as stale and cleared on read, so a new cycle starts unset.
+fn apply_weekly_resets_rollover(account: &mut StoredKimiAccount) {
+    if account.weekly_resets_remaining.is_some()
+        && account
+            .weekly_resets_refill_at
+            .map(|refill| refill <= now_ts())
+            .unwrap_or(false)
+    {
+        account.weekly_resets_remaining = None;
+        account.weekly_resets_refill_at = None;
+    }
+}
+
+#[tauri::command]
+pub fn set_kimi_weekly_resets(
+    account_id: String,
+    remaining: i32,
+    refill_at: Option<i64>,
+) -> Result<KimiAccountSummary, String> {
+    let dir = quota_storage_dir()?;
+    let mut account = load_account_in(&dir, &account_id)?;
+    account.weekly_resets_remaining = Some(remaining.clamp(0, 99));
+    account.weekly_resets_refill_at = refill_at;
+    account.last_used = now_ts();
+    save_account_in(&dir, &account)?;
+    Ok(account.to_summary())
+}
+
+#[tauri::command]
+pub fn use_kimi_weekly_reset(account_id: String) -> Result<KimiAccountSummary, String> {
+    let dir = quota_storage_dir()?;
+    let mut account = load_account_in(&dir, &account_id)?;
+    apply_weekly_resets_rollover(&mut account);
+    match account.weekly_resets_remaining {
+        Some(remaining) if remaining > 0 => {
+            account.weekly_resets_remaining = Some(remaining - 1);
+        }
+        _ => {
+            return Err(
+                "No weekly resets tracked. Set the count first (e.g. 2 per billing month)."
+                    .to_string(),
+            )
+        }
+    }
+    account.last_used = now_ts();
+    save_account_in(&dir, &account)?;
+    Ok(account.to_summary())
 }
 
 /// Random 128-bit id rendered as hex; the same shape Cursor logins use.

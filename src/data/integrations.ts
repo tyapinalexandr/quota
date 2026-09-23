@@ -67,6 +67,6 @@ export const integrations: IntegrationSummary[] = [
     status: 'reference',
     referenceHint:
       'API key from the Kimi Code console (kimi.ai/code), kept in the OS credential store; quota from api.kimi.com/coding/v1/usages.',
-    iconPath: '/brand-icons/kimi.svg',
+    iconPath: '/brand-icons/kimi.png',
   },
 ];

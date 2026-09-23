@@ -23,6 +23,10 @@ export interface KimiAccountSummary {
   userLevelName?: string | null;
   quotaQueryLastError?: string | null;
   usageUpdatedAt?: number | null;
+  /** Manual tracker: weekly-limit resets left this billing month. */
+  weeklyResetsRemaining?: number | null;
+  /** Unix seconds when the reset counter refills (billing cycle rollover). */
+  weeklyResetsRefillAt?: number | null;
   createdAt: number;
   lastUsed: number;
 }
@@ -53,4 +57,16 @@ export function refreshAllKimiAccounts() {
 
 export function deleteKimiAccount(accountId: string) {
   return invoke<void>('delete_kimi_account', { accountId });
+}
+
+export function setKimiWeeklyResets(accountId: string, remaining: number, refillAt?: number | null) {
+  return invoke<KimiAccountSummary>('set_kimi_weekly_resets', {
+    accountId,
+    remaining,
+    refillAt: refillAt ?? null,
+  });
+}
+
+export function useKimiWeeklyReset(accountId: string) {
+  return invoke<KimiAccountSummary>('use_kimi_weekly_reset', { accountId });
 }

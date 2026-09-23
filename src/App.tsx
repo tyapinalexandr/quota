@@ -52,7 +52,9 @@ import {
   listCodexAccounts,
   refreshAllCodexAccounts,
   refreshCodexAccount,
+  setCodexWeeklyResets,
   startCodexOAuthLogin,
+  useCodexWeeklyReset,
   type CodexAccountSummary,
   type CodexOAuthStartResponse,
 } from './data/codex';
@@ -125,7 +127,9 @@ import {
   listKimiAccounts,
   refreshAllKimiAccounts,
   refreshKimiAccount,
+  setKimiWeeklyResets,
   startKimiAddKey,
+  useKimiWeeklyReset,
   type KimiAccountSummary,
 } from './data/kimi';
 import { integrations } from './data/integrations';
@@ -156,7 +160,7 @@ const CLAUDE_ICON = '/brand-icons/claude.svg';
 const KIRO_ICON = '/brand-icons/kiro.svg';
 const CURSOR_ICON = '/brand-icons/cursor.svg';
 const GROK_ICON = '/brand-icons/grok.svg';
-const KIMI_ICON = '/brand-icons/kimi.svg';
+const KIMI_ICON = '/brand-icons/kimi.png';
 const DASHBOARD_VIEW_MODE_KEY = 'quota.dashboardViewMode';
 const ACCOUNT_PAGES_VIEW_MODE_KEY = 'quota.accountPagesViewMode';
 const THEME_MODE_KEY = 'quota.themeMode';
@@ -1004,6 +1008,14 @@ export function App() {
     }
   }
 
+  function updateCodexAccount(account: CodexAccountSummary) {
+    setCodexAccounts((accounts) => accounts.map((item) => (item.id === account.id ? account : item)));
+  }
+
+  function updateKimiAccount(account: KimiAccountSummary) {
+    setKimiAccounts((accounts) => accounts.map((item) => (item.id === account.id ? account : item)));
+  }
+
   async function importLocalAntigravity() {
     setAntigravityBusy(true);
     try {
@@ -1828,6 +1840,8 @@ export function App() {
             onRefreshAllKimi={refreshAllKimi}
             onRefreshKimiAccount={refreshKimi}
             onRemoveKimiAccount={removeKimiAccount}
+            onCodexAccountUpdated={updateCodexAccount}
+            onKimiAccountUpdated={updateKimiAccount}
             onOpenIntegrations={() => setView('integrations')}
             onOpenCopilotAccounts={() => setView('github-copilot-accounts')}
             onOpenCodexAccounts={() => setView('codex-accounts')}
@@ -1889,6 +1903,7 @@ export function App() {
             onRemoveAccount={removeCodexAccount}
             onReauthenticate={startCodexAuth}
             onTogglePinnedAccount={togglePinnedAccount}
+            onAccountUpdated={updateCodexAccount}
           />
         ) : view === 'antigravity-accounts' ? (
           <AntigravityAccountsView
@@ -1975,6 +1990,7 @@ export function App() {
             onRefreshAccount={refreshKimi}
             onRemoveAccount={removeKimiAccount}
             onTogglePinnedAccount={togglePinnedAccount}
+            onAccountUpdated={updateKimiAccount}
           />
         ) : (
           <IntegrationsView
@@ -2483,6 +2499,8 @@ interface DashboardViewProps {
   onRefreshAllKimi: () => void;
   onRefreshKimiAccount: (accountId: string) => void;
   onRemoveKimiAccount: (accountId: string) => void;
+  onCodexAccountUpdated: (account: CodexAccountSummary) => void;
+  onKimiAccountUpdated: (account: KimiAccountSummary) => void;
   onOpenIntegrations: () => void;
   onOpenCopilotAccounts: () => void;
   onOpenCodexAccounts: () => void;
@@ -2551,6 +2569,8 @@ function DashboardView({
   onRefreshAllKimi,
   onRefreshKimiAccount,
   onRemoveKimiAccount,
+  onCodexAccountUpdated,
+  onKimiAccountUpdated,
   onOpenIntegrations,
   onOpenCopilotAccounts,
   onOpenCodexAccounts,
@@ -2742,6 +2762,7 @@ function DashboardView({
                     onRemove={() => onRemoveCodexAccount(account.id)}
                     onReauthenticate={onReauthenticateCodex}
                     onTogglePin={() => onTogglePinnedAccount(account.id)}
+                    onAccountUpdated={onCodexAccountUpdated}
                   />
                 ))}
               </div>
@@ -3002,6 +3023,7 @@ function DashboardView({
                     onRefresh={() => onRefreshKimiAccount(account.id)}
                     onRemove={() => onRemoveKimiAccount(account.id)}
                     onTogglePin={() => onTogglePinnedAccount(account.id)}
+                    onAccountUpdated={onKimiAccountUpdated}
                   />
                 ))}
               </div>
@@ -3118,6 +3140,7 @@ interface CodexAccountsViewProps {
   onRemoveAccount: (accountId: string) => void;
   onReauthenticate: () => void;
   onTogglePinnedAccount: (accountId: string) => void;
+  onAccountUpdated: (account: CodexAccountSummary) => void;
 }
 
 function CodexAccountsView({
@@ -3133,6 +3156,7 @@ function CodexAccountsView({
   onRemoveAccount,
   onReauthenticate,
   onTogglePinnedAccount,
+  onAccountUpdated,
 }: CodexAccountsViewProps) {
   return (
     <div className="page-stack">
@@ -3192,6 +3216,7 @@ function CodexAccountsView({
               onRemove={() => onRemoveAccount(account.id)}
               onReauthenticate={onReauthenticate}
               onTogglePin={() => onTogglePinnedAccount(account.id)}
+              onAccountUpdated={onAccountUpdated}
             />
           ))}
         </section>
@@ -4227,6 +4252,7 @@ interface KimiAccountsViewProps {
   onRefreshAccount: (accountId: string) => void;
   onRemoveAccount: (accountId: string) => void;
   onTogglePinnedAccount: (accountId: string) => void;
+  onAccountUpdated: (account: KimiAccountSummary) => void;
 }
 
 function KimiAccountsView({
@@ -4241,6 +4267,7 @@ function KimiAccountsView({
   onRefreshAccount,
   onRemoveAccount,
   onTogglePinnedAccount,
+  onAccountUpdated,
 }: KimiAccountsViewProps) {
   return (
     <div className="page-stack">
@@ -4299,6 +4326,7 @@ function KimiAccountsView({
               onRefresh={() => onRefreshAccount(account.id)}
               onRemove={() => onRemoveAccount(account.id)}
               onTogglePin={() => onTogglePinnedAccount(account.id)}
+              onAccountUpdated={onAccountUpdated}
             />
           ))}
         </section>
@@ -4401,6 +4429,163 @@ function CopilotUsageCard({ account, busy, pinned, dashboardMode = false, onRefr
   );
 }
 
+/**
+ * Manual tracker for the weekly-limit resets a subscription includes each
+ * billing month (e.g. 2/month). The provider APIs do not expose the remaining
+ * count, so the user sets it once and taps "Use reset" when they spend one.
+ * After `refillAt` passes, the stored count is treated as stale.
+ */
+interface WeeklyResetsAccountShape {
+  weeklyResetsRemaining?: number | null;
+  weeklyResetsRefillAt?: number | null;
+}
+
+interface WeeklyResetsRowProps<TAccount extends WeeklyResetsAccountShape> {
+  account: TAccount;
+  busy: boolean;
+  onUpdated: (account: TAccount) => void;
+  setResets: (remaining: number, refillAt?: number | null) => Promise<TAccount>;
+  useReset: () => Promise<TAccount>;
+}
+
+function WeeklyResetsRow<TAccount extends WeeklyResetsAccountShape>({
+  account,
+  busy,
+  onUpdated,
+  setResets,
+  useReset,
+}: WeeklyResetsRowProps<TAccount>) {
+  const [editing, setEditing] = useState(false);
+  const [countInput, setCountInput] = useState('2');
+  const [dateInput, setDateInput] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refillAt = account.weeklyResetsRefillAt ?? null;
+  const stale = refillAt != null && refillAt * 1000 <= Date.now();
+  const remaining = stale ? null : account.weeklyResetsRemaining ?? null;
+
+  function openEditor() {
+    setCountInput(String(remaining ?? 2));
+    setDateInput(
+      refillAt && !stale ? new Date(refillAt * 1000).toISOString().slice(0, 10) : '',
+    );
+    setError(null);
+    setEditing(true);
+  }
+
+  async function run(action: () => Promise<TAccount>) {
+    setPending(true);
+    setError(null);
+    try {
+      onUpdated(await action());
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function save() {
+    const count = Number.parseInt(countInput, 10);
+    if (Number.isNaN(count) || count < 0 || count > 99) {
+      setError('Enter a count between 0 and 99.');
+      return;
+    }
+    let refill: number | null = null;
+    if (dateInput) {
+      const parsed = new Date(`${dateInput}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) {
+        setError('Enter a valid refill date.');
+        return;
+      }
+      refill = Math.floor(parsed.getTime() / 1000);
+    }
+    void run(() => setResets(count, refill));
+  }
+
+  const disabled = busy || pending;
+
+  return (
+    <div className="usage-metric">
+      <div className="usage-metric__line">
+        <span>Weekly resets</span>
+        <strong>
+          {remaining != null ? `${remaining} left` : 'Not tracked'}
+        </strong>
+        <span className="usage-metric__actions">
+          {remaining != null && remaining > 0 ? (
+            <button
+              type="button"
+              className="usage-metric__action"
+              onClick={() => void run(useReset)}
+              disabled={disabled}
+              title="Mark one weekly-limit reset as used"
+            >
+              Use reset
+            </button>
+          ) : null}
+          {editing ? (
+            <button
+              type="button"
+              className="usage-metric__action"
+              onClick={() => setEditing(false)}
+              disabled={pending}
+            >
+              Cancel
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="usage-metric__action"
+              onClick={openEditor}
+              disabled={disabled}
+            >
+              {remaining != null ? 'Edit' : 'Track'}
+            </button>
+          )}
+        </span>
+      </div>
+      <div className="usage-metric__meta">
+        {remaining != null
+          ? refillAt
+            ? `Refills ${formatShortDate(new Date(refillAt * 1000))} — manual tracker, the API does not report resets.`
+            : 'Manual tracker — the API does not report resets.'
+          : 'Resets per billing month (e.g. 2) are not reported by the API — track them here.'}
+      </div>
+      {editing ? (
+        <div className="weekly-resets-editor">
+          <label>
+            Resets left
+            <input
+              type="number"
+              min={0}
+              max={99}
+              value={countInput}
+              onChange={(event) => setCountInput(event.target.value)}
+              disabled={pending}
+            />
+          </label>
+          <label>
+            Refill date (optional)
+            <input
+              type="date"
+              value={dateInput}
+              onChange={(event) => setDateInput(event.target.value)}
+              disabled={pending}
+            />
+          </label>
+          <button type="button" className="button-primary" onClick={save} disabled={pending}>
+            Save
+          </button>
+        </div>
+      ) : null}
+      {error ? <p className="usage-card__error" role="alert">{error}</p> : null}
+    </div>
+  );
+}
+
 interface CodexUsageCardProps {
   account: CodexAccountSummary;
   busy: boolean;
@@ -4410,6 +4595,7 @@ interface CodexUsageCardProps {
   onRemove: () => void;
   onReauthenticate: () => void;
   onTogglePin: () => void;
+  onAccountUpdated: (account: CodexAccountSummary) => void;
 }
 
 function CodexUsageCard({
@@ -4421,6 +4607,7 @@ function CodexUsageCard({
   onRemove,
   onReauthenticate,
   onTogglePin,
+  onAccountUpdated,
 }: CodexUsageCardProps) {
   return (
     <article className="usage-card">
@@ -4465,6 +4652,13 @@ function CodexUsageCard({
           remaining={account.quota.weeklyRemainingPercent}
           resetAt={account.quota.weeklyResetAt}
           windowMinutes={account.quota.weeklyWindowMinutes}
+        />
+        <WeeklyResetsRow
+          account={account}
+          busy={busy}
+          onUpdated={onAccountUpdated}
+          setResets={(remaining, refillAt) => setCodexWeeklyResets(account.id, remaining, refillAt)}
+          useReset={() => useCodexWeeklyReset(account.id)}
         />
       </div>
 
@@ -5192,9 +5386,10 @@ interface KimiUsageCardProps {
   onRefresh: () => void;
   onRemove: () => void;
   onTogglePin: () => void;
+  onAccountUpdated: (account: KimiAccountSummary) => void;
 }
 
-function KimiUsageCard({ account, busy, pinned, dashboardMode = false, onRefresh, onRemove, onTogglePin }: KimiUsageCardProps) {
+function KimiUsageCard({ account, busy, pinned, dashboardMode = false, onRefresh, onRemove, onTogglePin, onAccountUpdated }: KimiUsageCardProps) {
   const exhausted = account.monthlyRemainingPercent != null && account.monthlyRemainingPercent <= 0;
 
   return (
@@ -5261,6 +5456,14 @@ function KimiUsageCard({ account, busy, pinned, dashboardMode = false, onRefresh
             </div>
           </div>
         ) : null}
+
+        <WeeklyResetsRow
+          account={account}
+          busy={busy}
+          onUpdated={onAccountUpdated}
+          setResets={(remaining, refillAt) => setKimiWeeklyResets(account.id, remaining, refillAt)}
+          useReset={() => useKimiWeeklyReset(account.id)}
+        />
       </div>
 
       {account.quotaQueryLastError ? (

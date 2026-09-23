@@ -335,6 +335,61 @@ code {
   height: 26px;
 }
 
+.usage-metric__actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.usage-metric__action {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.usage-metric__action:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-soft);
+}
+
+.usage-metric__action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.weekly-resets-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.weekly-resets-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.weekly-resets-editor input {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 5px 8px;
+  font-size: 0.85rem;
+}
+
+.weekly-resets-editor input[type='number'] {
+  width: 80px;
+}
+
 .integration-card__icon img {
   display: block;
   width: 20px;
